@@ -93,21 +93,13 @@ def generate_huffman_codes(root):
     return codebook
 
 def get_frame_number(fname):
+    '''extracts frame number from file name'''
     return int(fname.replace('frame','').replace('.jpg',''))
 
-# -----------------------
-# Video to frame differences + histogram
-# -----------------------
 
-folder = "./Frame_Folder"
-diff_folder = "./Diff_Folder"
-os.makedirs(folder, exist_ok=True)
-os.makedirs(diff_folder, exist_ok=True)
-
-width, height = 1920, 1080
-
-def split_vid_into_frames(videopath='./Social_Network.avi'):
-    cap = cv2.VideoCapture(videopath)
+def split_vid_into_frames(VideoPath='./Social_Network.avi'):
+    '''splits video into frames and saves them as photos'''
+    cap = cv2.VideoCapture(VideoPath)
     count = 0
     while cap.isOpened():
         ret, frame = cap.read()
@@ -117,70 +109,74 @@ def split_vid_into_frames(videopath='./Social_Network.avi'):
         count += 1
     cap.release()
 
-files = [f for f in os.listdir(folder) if f.startswith('frame')]
-files.sort(key=get_frame_number)
+def frame_differences(UseMotionPredictor:bool, SaveVideo:bool, FileName:str):
+    '''Finds the differences between the next and predicted frame, saves the videos, 
+       calculates and returns the histogram of the colour values for the pixels.'''
+    
+    files = [f for f in os.listdir(folder) if f.startswith('frame')]
+    files.sort(key=get_frame_number)
 
-fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-video = cv2.VideoWriter('Social_Net_diff.avi', fourcc, 24, (width, height), False)
-video2 = cv2.VideoWriter('Social_Net_diffc.avi', fourcc, 24, (width, height), False)
-hist = np.zeros(256, dtype=np.int64)
-hist2 = np.zeros(256, dtype=np.int64)
-for i in range(len(files) - 1):
-    img1 = cv2.imread(os.path.join(folder, files[i]), cv2.IMREAD_GRAYSCALE)
-    img2 = cv2.imread(os.path.join(folder, files[i+1]), cv2.IMREAD_GRAYSCALE)
-    diff = cv2.absdiff(img2, img1)
+    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+    video = cv2.VideoWriter(f'Social_Net_{FileName}.avi', fourcc, 24, (width, height), False) 
+    hist = np.zeros(256, dtype=np.int64)
 
-    predicted, _ = predict_frame_with_motion(img1, img2, block_size=16, search_range=4)
-    diff2 = cv2.absdiff(img2, predicted)
+    for i in range(len(files) - 1):
+        img1 = cv2.imread(os.path.join(folder, files[i]), cv2.IMREAD_GRAYSCALE)
+        img2 = cv2.imread(os.path.join(folder, files[i+1]), cv2.IMREAD_GRAYSCALE)
+        if UseMotionPredictor:
+            predicted, _ = predict_frame_with_motion(img1, img2, block_size=16, search_range=4)
+            diff = cv2.absdiff(img2, predicted) 
+        else:
+            diff = cv2.absdiff(img2, img1)
 
-    cv2.imwrite(os.path.join(diff_folder, f"Diff{i}.jpg"), diff)
-    cv2.imwrite(os.path.join(diff_folder, f"Diffc{i}.jpg"), diff2)
-    video.write(diff)
-    video2.write(diff2)
+        cv2.imwrite(os.path.join(diff_folder, f"{FileName}{i}.jpg"), diff)
+        if SaveVideo:
+            video.write(diff)
+        
+        vals, counts = np.unique(diff, return_counts=True)
+        hist[vals] += counts
+    video.release()
+    return hist
 
-    vals, counts = np.unique(diff, return_counts=True)
-    hist[vals] += counts
-    vals2, counts2 = np.unique(diff2, return_counts=True)
-    hist2[vals2] += counts2
+def huffman_from_hist(hist):
+    '''Build Huffman code and compute compression'''
+    root = build_huffman_tree(hist)
+    codebook = generate_huffman_codes(root)
+    total_bits=0
+    original_bits = hist.sum() * 8
+    print("Huffman codes (pixel_value: code):")
 
-video.release()
-video2.release()
-# -----------------------
-# Build Huffman code and compute compression
-# -----------------------
+    for sym in sorted(codebook.keys()):
+        total_bits += hist[sym] * len(codebook[sym])
+        print(f"{sym}: {codebook[sym]}")  
 
-root = build_huffman_tree(hist)
-codebook = generate_huffman_codes(root)
-total_bits=0
-root2 = build_huffman_tree(hist2)
-codebook2 = generate_huffman_codes(root2)
-total_bits2=0
-original_bits = hist.sum() * 8
-print("Huffman codes (pixel_value: code):")
+    if total_bits>0 :
+        compression_ratio = original_bits / total_bits  
+    else :
+        compression_ratio = 0
 
-for sym in sorted(codebook.keys()):
-    total_bits += hist[sym] * len(codebook[sym])
-    print(f"{sym}: {codebook[sym]}")  
+    print("\nOriginal size (bits):", original_bits)
+    print("Compressed size (bits):", total_bits)
+    print("Compression ratio (original/compressed):", compression_ratio)
 
-if total_bits>0 :
-    compression_ratio = original_bits / total_bits  
-else :
-    compression_ratio = 0
+###############################################################################
 
-for sym in sorted(codebook2.keys()):
-    total_bits2 += hist2[sym] * len(codebook2[sym])
-    print(f"{sym}: {codebook2[sym]}")  
+if __name__ == "__main__":
+    folder = "./Frame_Folder"
+    diff_folder = "./Diff_Folder"
+    os.makedirs(folder, exist_ok=True)
+    os.makedirs(diff_folder, exist_ok=True)
 
-if total_bits2>0 :
-    compression_ratio2 = original_bits / total_bits2  
-else :
-    compression_ratio2 = 0
+    width, height = 1920, 1080
+    split_vid_into_frames()
+    # question a
+    hist = frame_differences(False,True,"diff_simple_predictor")
+    # question b
+    huffman_from_hist(hist)
+    # question c
+    hist = frame_differences(True,True,"diff_motion_predictor")
+    huffman_from_hist(hist)
 
-print("\nOriginal size (bits):", original_bits)
-print("Compressed size (bits):", total_bits)
-print("Compression ratio (original/compressed):", compression_ratio)
 
-print("\nOriginal size (bits):", original_bits)
-print("Compressed size (bits):", total_bits2)
-print("Compression ratio (original/compressed):", compression_ratio2)
+
 

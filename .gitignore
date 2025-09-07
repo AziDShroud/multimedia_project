@@ -1,3 +1,6 @@
 *.avi
 Frame_Folder/
 Diff_Folder/
+*.docx
+*.zip
+*.pdf
